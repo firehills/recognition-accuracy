@@ -273,6 +273,118 @@ Targets below `1 / impostor_count` are flagged; zero observed false matches does
 not establish a zero population FMR. Model training overlap with LFW, undetected
 faces, and wrong face selection can bias results.
 
+### How to interpret `metrics.json`
+
+Each evaluation writes its own `metrics.json` in its output directory under
+`results/`. Read each report independently, using `model` and `model_sha256` to
+identify the evaluated model. The guidance below applies to all reports, regardless
+of model name, format, or measured values.
+
+Start with the question you want the system to answer:
+
+* **Verification ("Is this Alice?")**: read `operating_points`. These show the
+  trade-off between accepting the wrong person and rejecting the right person.
+* **Identification ("Who is this among the enrolled people?")**: read
+  `rank_one_accuracy`. This is a different task, so it need not match the
+  verification acceptance rate.
+
+Rates are stored as fractions: multiply by 100 to get a percentage. For example,
+`0.95` means **95%**, not 0.95%.
+
+#### Read the operating points first
+
+Each entry in `operating_points` is a different matching strictness. The default
+targets mean:
+
+| `target_fmr` | Requested false match rate | What to read alongside it |
+|---|---|---|
+| `0.01` | At most 1 in 100 wrong-person comparisons | The report's `tar`, `fnmr`, and measured `fmr` |
+| `0.001` | At most 1 in 1,000 wrong-person comparisons | The report's `tar`, `fnmr`, and measured `fmr` |
+| `0.0001` | At most 1 in 10,000 wrong-person comparisons | The report's `tar`, `fnmr`, and measured `fmr` |
+
+Use the values from the particular report you are reading, not thresholds or
+acceptance rates from another model. Increasing the threshold makes matching
+stricter: fewer wrong-person matches, but more rejections of genuine users.
+
+* `target_fmr` is the requested maximum false match rate. `fmr` is the rate
+  actually measured at the selected threshold; ties can make it lower.
+* `tar` is the fraction of genuine comparisons accepted. `fnmr` is the fraction
+  rejected, so `tar + fnmr = 1`.
+* `threshold` is a cosine similarity cutoff, **not a confidence percentage**.
+  A threshold of `0.5` does not mean "50% confident." Thresholds are specific
+  to a model and preprocessing setup; do not copy them between models.
+* `expected_false_matches_at_target` is `target_fmr * impostor_comparisons`.
+  It is a reference count at the requested rate, not the observed count or a
+  prediction of deployment incidents. The observed count can be recovered by
+  rounding `fmr * impostor_comparisons`.
+
+**FMR is per comparison, not per search or per person.** Comparing one photo
+against thousands of enrolled identities gives many opportunities for a wrong
+match. An FMR of 1 in 10,000 does not mean only 1 mistaken identification in
+10,000 searches.
+
+#### Understand the summary numbers
+
+* **`rank_one_accuracy` (higher is better):** how often the correct identity had
+  the highest score among all enrolled identities. Multiply by 100 for the
+  percentage, or round `rank_one_accuracy * test_images` for the number of correct
+  identifications. Tied top scores
+  count as incorrect. This is closed-set identification: all test identities are
+  enrolled, and no acceptance threshold is applied. It does not measure rejection
+  of unknown people.
+* **`eer.eer` (lower is better):** the point where the false match and false
+  non-match rates balance. Multiply by 100 to express **each error rate** as a
+  percentage; the reported value is not their sum. It is useful for a quick model
+  comparison, but is not
+  necessarily the right operating point for your application. `threshold_bracket`
+  and `interpolation_weight` describe the interpolation used; an exact balanced
+  rate may not be achievable with a single threshold.
+* **`roc_auc` (higher is better):** how well genuine scores rank above wrong-person
+  scores across thresholds. It measures how often a randomly selected genuine
+  comparison outranks a randomly selected impostor comparison, counting ties as
+  half credit. An AUC of 1 is perfect separation;
+  0.5 represents chance-level ranking. **AUC is not identification accuracy** and
+  does not by itself tell you performance at a strict false match rate.
+
+Avoid combining genuine and impostor comparisons into one "overall accuracy."
+There are far more wrong-person comparisons, so rejecting almost everything could
+look accurate while being unusable for genuine users.
+
+#### Check the evidence and compare fairly
+
+* `enrolled_identities`, `enrolment_images`, and `test_images` describe the test
+  size. Enrolment builds reference templates; it does not train the model.
+  `genuine_comparisons` counts correct-person pairs and `impostor_comparisons`
+  counts different-person pairs, not distinct people or independent trials.
+* `fmr_resolution` and `fnmr_resolution` are the smallest possible changes in the
+  measured rates: one divided by the corresponding comparison count.
+  `below_empirical_resolution: true` warns that the requested FMR is smaller than
+  one observed false match could measure. These fields are **not confidence
+  intervals**; even `false` does not establish statistical certainty.
+* `preparation_failures: 0` means no image preparation failures were recorded,
+  not that every crop or identity label was correct. `partial_dataset_accepted`
+  records whether evaluation allowed preparation failures.
+* Model/dataset hashes, `output_name`, `input_range` (when present), and the
+  preprocessing contract help establish reproducibility. `embedding_dimension`
+  is the number of values representing a face, not a quality score.
+* To compare models, keep the dataset, splits, enrolment count, and alignment
+  protocol the same, while using each model's required preprocessing. Compare
+  **TAR at the same target FMR**, then rank-one accuracy and EER as appropriate.
+  Small differences alone do not establish a meaningful improvement.
+
+When reviewing several reports, build a side-by-side table with one row per model
+and columns for TAR at each shared target FMR, rank-one accuracy, EER, and AUC.
+Match operating points by `target_fmr`, not their position in the list. Higher TAR,
+rank-one accuracy, and AUC are better; lower EER is better. A higher or lower
+similarity threshold alone does not make one model better than another.
+
+For a real application, choose an acceptable false match risk, calibrate its
+threshold on a separate representative calibration set, then measure performance
+on a held-out test set. The thresholds in this report were selected on the same
+evaluation data, so they are not independently validated deployment settings.
+Results also do not establish resistance to spoofing, performance for every user
+group, or reliability under different cameras and lighting.
+
 ### Result files
 
 * `metrics.json`: metrics, counts, protocol, model hash, and threshold caveats.
