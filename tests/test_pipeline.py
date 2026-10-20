@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 from recognition_accuracy.dataset import discover_images, identity_from_name, prepare
-from recognition_accuracy.evaluate import evaluate, find_tensors
+from recognition_accuracy.evaluate import embed, evaluate, find_tensors
+from recognition_accuracy.runtime import session
 
 
 def write_image(root, name, bgr=(128, 128, 255)):
@@ -180,6 +181,49 @@ def test_external_tensors_and_duplicate_leakage(tmp_path):
     (dataset / "test/Alice_0002.raw").rename(dataset / "test/Alice_0001.raw")
     with pytest.raises(ValueError, match="leakage"):
         find_tensors(dataset, False)
+
+
+@pytest.mark.parametrize("model_fixture", ["recognition_model", "nchw_recognition_model"])
+@pytest.mark.parametrize("input_range", ["normalized", "0-255"])
+def test_embedding_input_range_and_layout(tmp_path, request, model_fixture, input_range):
+    model = request.getfixturevalue(model_fixture)
+    values = np.array([-1, 0, 1], dtype="<f4")
+    path = tmp_path / "Alice_0001.raw"
+    np.broadcast_to(values, (1, 112, 112, 3)).tofile(path)
+    result = embed([path], session(model, "cpu"), "embedding", input_range)
+    expected = values.astype(np.float64)
+    if input_range == "0-255":
+        expected = (expected + 1) * 127.5
+    np.testing.assert_allclose(result[0], expected / np.linalg.norm(expected), atol=1e-7)
+
+
+def test_invalid_input_range_fails_before_creating_output(tmp_path):
+    output = tmp_path / "results"
+    with pytest.raises(ValueError, match="Input range"):
+        run_evaluate(tmp_path / "missing", output, tmp_path / "unused.onnx", input_range="bad")
+    assert not output.exists()
+
+
+def test_cli_nchw_pixel_range_evaluation(tmp_path, nchw_recognition_model):
+    dataset = external_dataset(tmp_path)
+    results = tmp_path / "results"
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "recognition_accuracy", "evaluate",
+            "--dataset", str(dataset),
+            "--model", str(nchw_recognition_model),
+            "--output", str(results),
+            "--input-range", "0-255",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    summary = json.loads((results / "metrics.json").read_text())
+    assert summary["input_range"] == "0-255"
+    assert summary["embedding_dimension"] == 3
+    assert summary["genuine_comparisons"] == 2
 
 
 def test_invalid_tensor_size_and_values(tmp_path, recognition_model):

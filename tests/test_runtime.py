@@ -66,6 +66,14 @@ def test_tflite_dynamic_dimensions_are_allowed():
     runtime.require_shape([-1, 112, 112, 3], (1, 112, 112, 3))
 
 
+def test_nchw_input_shape_is_accepted_and_transposed():
+    base = np.zeros((1, 112, 112, 3), dtype=np.float32)
+    transformed = runtime.prepare_input_tensor(base, [1, 3, 112, 112])
+    assert transformed.shape == (1, 3, 112, 112)
+    np.testing.assert_array_equal(transformed[:, 0], base[:, :, :, 0])
+    runtime.require_shape([1, 3, 112, 112], (1, 112, 112, 3))
+
+
 def test_tflite_gpu_is_rejected_explicitly():
     with pytest.raises(ValueError, match="cpu only"):
         runtime.session(Path("model.tflite"), "gpu")

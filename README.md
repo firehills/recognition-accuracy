@@ -187,13 +187,40 @@ face-accuracy evaluate \
   --target-fmr 0.01 0.001 0.0001
 ```
 
-The model must have one float32 NHWC `[1,112,112,3]` input with the RGB normalization
-above and an embedding output `[1,D]`. Symbolic dimensions are accepted but the
+The model must have one float32 NHWC `[1,112,112,3]` or NCHW `[1,3,112,112]` input
+with the RGB normalization above and an embedding output `[1,D]`. The evaluator
+automatically transposes stored NHWC tensors for NCHW models; no dataset or model
+conversion is needed. RGB order is unchanged. By default, model inputs keep the
+dataset's normalized `[-1,1]` values (`--input-range normalized`). For models that
+expect RGB pixel values and perform normalization internally, use
+`--input-range 0-255`: this reverses the dataset normalization using
+`(tensor + 1) * 127.5` before inference, without modifying stored tensors.
+The selected range is recorded as `input_range` in the results. Choose it from
+your model's preprocessing contract; it cannot be inferred from input shape alone.
+Symbolic dimensions are accepted but the
 actual inference input is always batch one. If there are multiple outputs, select
 the embedding with `--output-name NAME`. Zero/non-finite embeddings fail explicitly.
 Pass a `.tflite` file directly as `--model` to evaluate it with LiteRT; no ONNX
 model or format conversion is required. TFLite evaluation currently supports CPU
 only.
+
+The legacy `arcfaceresnet100-8.onnx` export performs `(pixel - 127.5) / 128`
+internally, so it needs `--input-range 0-255`. The inspected export also has
+inconsistent opset-8 BatchNormalization attributes (`spatial=0` with one-dimensional
+per-channel parameters), which can fail inside ONNX Runtime. A separately repaired
+copy with those attributes set to `spatial=1` can be evaluated as follows:
+
+```bash
+face-accuracy evaluate \
+  --dataset data/tensors \
+  --model arcfaceresnet100-8-spatial.onnx \
+  --output results/arcface-spatial \
+  --device cpu \
+  --input-range 0-255
+```
+
+The evaluator does not automatically rewrite model graphs. Use a new results
+directory after a failed run, because existing outputs are not overwritten.
 
 ```bash
 face-accuracy evaluate \

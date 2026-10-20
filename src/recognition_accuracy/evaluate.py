@@ -8,7 +8,7 @@ import numpy as np
 
 from .dataset import TENSOR_BYTES, TENSOR_SHAPE, identity_from_name
 from .metrics import summarize
-from .runtime import require_shape, session, sha256, unit_vector
+from .runtime import prepare_input_tensor, require_shape, session, sha256, unit_vector
 
 
 def find_tensors(dataset: Path, allow_partial: bool) -> tuple[list[Path], list[Path]]:
@@ -57,15 +57,23 @@ def find_tensors(dataset: Path, allow_partial: bool) -> tuple[list[Path], list[P
     return train, test
 
 
-def embed(paths: list[Path], model_session, output_name: str) -> np.ndarray:
+def embed(
+    paths: list[Path], model_session, output_name: str, input_range: str = "normalized"
+) -> np.ndarray:
+    if input_range not in ("normalized", "0-255"):
+        raise ValueError("Input range must be normalized or 0-255")
     name = model_session.get_inputs()[0].name
+    model_shape = model_session.get_inputs()[0].shape
     result = []
     dimension = None
     for index, path in enumerate(paths):
         tensor = np.fromfile(path, dtype="<f4").reshape(TENSOR_SHAPE)
         if not np.isfinite(tensor).all() or tensor.min() < -1 or tensor.max() > 1:
             raise ValueError(f"Tensor contains non-finite values or values outside [-1,1]: {path}")
-        value = np.asarray(model_session.run([output_name], {name: tensor})[0])
+        if input_range == "0-255":
+            tensor = (tensor + np.float32(1)) * np.float32(127.5)
+        prepared = prepare_input_tensor(tensor, model_shape)
+        value = np.asarray(model_session.run([output_name], {name: prepared})[0])
         if value.ndim != 2 or value.shape[0] != 1 or value.shape[1] < 2:
             raise ValueError(f"Embedding output must have shape [1,D], D>=2; got {value.shape}")
         if dimension is None:
@@ -131,7 +139,10 @@ def evaluate(
     chunk_size: int,
     curve_points: int,
     allow_partial: bool,
+    input_range: str = "normalized",
 ) -> dict:
+    if input_range not in ("normalized", "0-255"):
+        raise ValueError("Input range must be normalized or 0-255")
     if chunk_size < 1 or curve_points < 3:
         raise ValueError("Chunk size must be positive and curve points must be >=3")
     if not targets or any(not 0 <= target <= 1 for target in targets):
@@ -157,8 +168,8 @@ def evaluate(
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
     output.mkdir(parents=True)
-    training = embed(train, model_session, output_name)
-    probes = embed(test, model_session, output_name)
+    training = embed(train, model_session, output_name, input_range)
+    probes = embed(test, model_session, output_name, input_range)
     if training.shape[1] != probes.shape[1]:
         raise ValueError("Train and test embedding dimensions differ")
     sums = np.zeros((len(identities), training.shape[1]), dtype=np.float64)
@@ -227,6 +238,7 @@ def evaluate(
         model_sha256=sha256(model),
         device=device,
         output_name=output_name,
+        input_range=input_range,
         dataset=str(dataset.resolve()),
         enrolled_identities=len(identities),
         enrolment_images=len(train),

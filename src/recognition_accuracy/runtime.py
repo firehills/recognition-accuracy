@@ -108,11 +108,37 @@ def session(path: Path, device: str) -> ort.InferenceSession | LiteRTSession:
     return result
 
 
-def require_shape(actual: list, expected: tuple[int, ...]) -> None:
-    if len(actual) != len(expected) or any(
-        isinstance(a, int) and a >= 0 and a != e for a, e in zip(actual, expected)
+def _shape_matches(actual: list, expected: tuple[int, ...]) -> bool:
+    if len(actual) != len(expected):
+        return False
+    if all(
+        not isinstance(a, int) or a < 0 or a == e for a, e in zip(actual, expected)
     ):
+        return True
+    if len(actual) == 4 and actual[0] == expected[0]:
+        ordered = (actual[1], actual[2], actual[3])
+        nhwc = (expected[1], expected[2], expected[3])
+        nchw = (expected[3], expected[1], expected[2])
+        if ordered == nhwc or ordered == nchw:
+            return True
+    return False
+
+
+def require_shape(actual: list, expected: tuple[int, ...]) -> None:
+    if not _shape_matches(actual, expected):
         raise ValueError(f"Expected model input {expected}, got {actual}")
+
+
+def prepare_input_tensor(value: np.ndarray, model_shape: list | tuple) -> np.ndarray:
+    if value.ndim != 4 or len(model_shape) != 4:
+        return value
+    if value.shape[0] != 1:
+        return value
+    if model_shape[1] == 3 and value.shape[-1] == 3 and tuple(value.shape[1:3]) == tuple(model_shape[2:4]):
+        return np.transpose(value, (0, 3, 1, 2))
+    if model_shape[3] == 3 and value.shape[1] == 3 and tuple(value.shape[2:4]) == tuple(model_shape[1:3]):
+        return np.transpose(value, (0, 2, 3, 1))
+    return value
 
 
 def unit_vector(value: np.ndarray) -> np.ndarray:

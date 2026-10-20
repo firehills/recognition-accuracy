@@ -54,3 +54,13 @@ def recognition_model(tmp_path):
         [helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 112, 112, 3])],
         [helper.make_tensor_value_info("embedding", TensorProto.FLOAT, [1, 3])],
     )
+
+
+@pytest.fixture
+def nchw_recognition_model(tmp_path):
+    return save_model(
+        tmp_path / "recognition-nchw.onnx",
+        [helper.make_node("ReduceMean", ["input"], ["embedding"], axes=[2, 3], keepdims=0)],
+        [helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 112, 112])],
+        [helper.make_tensor_value_info("embedding", TensorProto.FLOAT, [1, 3])],
+    )

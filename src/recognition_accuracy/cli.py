@@ -44,7 +44,14 @@ def parser() -> argparse.ArgumentParser:
     )
 
     score = commands.add_parser(
-        "evaluate", help="Infer embeddings and compute verification metrics"
+        "evaluate",
+        help="Infer embeddings and compute verification metrics",
+        epilog=(
+            "Model inputs may use NHWC [1,112,112,3] or NCHW [1,3,112,112]. "
+            "The evaluator automatically transposes stored NHWC tensors for NCHW models; "
+            "RGB order is unchanged; normalization is unchanged unless --input-range 0-255 "
+            "is selected."
+        ),
     )
     score.add_argument(
         "--dataset", type=Path, required=True, help="Directory containing train/ and test/"
@@ -55,6 +62,12 @@ def parser() -> argparse.ArgumentParser:
     )
     score.add_argument("--device", choices=["cpu", "gpu"], default="cpu")
     score.add_argument("--output-name", help="Required if the model has multiple outputs")
+    score.add_argument(
+        "--input-range",
+        choices=["normalized", "0-255"],
+        default="normalized",
+        help="Model input values: normalized [-1,1] (default) or RGB pixels [0,255]",
+    )
     score.add_argument("--target-fmr", type=float, nargs="+", default=[0.01, 0.001, 0.0001])
     score.add_argument(
         "--chunk-size", type=int, default=128, help="Probe count per score-matrix chunk"
@@ -96,6 +109,7 @@ def main() -> int:
                 args.chunk_size,
                 args.curve_points,
                 args.allow_partial,
+                input_range=args.input_range,
             )
     except (ValueError, OSError, RuntimeError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
