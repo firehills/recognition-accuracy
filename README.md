@@ -1,7 +1,8 @@
 # MobileFaceNet accuracy tools
 
-Download LFW, align faces into model-ready raw tensors, and evaluate an ONNX
-MobileFaceNet model on CPU or NVIDIA GPU. No models or face data are bundled.
+Download LFW, align faces into model-ready raw tensors, and evaluate an ONNX or
+TFLite MobileFaceNet model. ONNX models run on CPU or NVIDIA GPU; TFLite models use
+the LiteRT runtime on CPU. No models or face data are bundled.
 
 ## Environment
 
@@ -29,9 +30,12 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[cpu,test]'
 # OR in a separate environment: python -m pip install -e '.[gpu,test]'
+# For TFLite model evaluation, include the LiteRT runtime:
+python -m pip install -e '.[cpu,tflite,test]'
 ```
 
-Install **one** runtime extra, not both: they provide the same `onnxruntime` module.
+Install **one** ONNX runtime extra (`cpu` or `gpu`), not both: they provide the
+same `onnxruntime` module. Add `tflite` when evaluating TFLite models.
 
 ## 1. Download LFW
 
@@ -187,6 +191,17 @@ The model must have one float32 NHWC `[1,112,112,3]` input with the RGB normaliz
 above and an embedding output `[1,D]`. Symbolic dimensions are accepted but the
 actual inference input is always batch one. If there are multiple outputs, select
 the embedding with `--output-name NAME`. Zero/non-finite embeddings fail explicitly.
+Pass a `.tflite` file directly as `--model` to evaluate it with LiteRT; no ONNX
+model or format conversion is required. TFLite evaluation currently supports CPU
+only.
+
+```bash
+face-accuracy evaluate \
+  --dataset data/tensors \
+  --model /path/to/mobilefacenet.tflite \
+  --output results/mobilefacenet-tflite \
+  --device cpu
+```
 
 The evaluator recursively finds `.raw` files in `train/` and `test/`. Filenames
 determine identity; `unused/` is ignored. It checks byte size, value range,

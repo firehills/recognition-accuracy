@@ -50,7 +50,9 @@ def parser() -> argparse.ArgumentParser:
         "--dataset", type=Path, required=True, help="Directory containing train/ and test/"
     )
     score.add_argument("--output", type=Path, required=True)
-    score.add_argument("--model", type=Path, required=True, help="MobileFaceNet ONNX model")
+    score.add_argument(
+        "--model", type=Path, required=True, help="MobileFaceNet ONNX or TFLite model"
+    )
     score.add_argument("--device", choices=["cpu", "gpu"], default="cpu")
     score.add_argument("--output-name", help="Required if the model has multiple outputs")
     score.add_argument("--target-fmr", type=float, nargs="+", default=[0.01, 0.001, 0.0001])
